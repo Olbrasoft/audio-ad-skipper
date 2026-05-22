@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Audio Ad Skipper",
+  "version": "0.2.0",
+  "description": "Přeskočí prerollové reklamy u TTS článků na webech Seznam rodiny (Novinky, Seznam Zprávy, Sport.cz, …) a pustí rovnou namluvený článek.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.novinky.cz/*",
+    "https://www.seznamzpravy.cz/*",
+    "https://www.sport.cz/*",
+    "https://www.super.cz/*",
+    "https://www.prozeny.cz/*",
+    "https://*.sdn.cz/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.novinky.cz/*",
+        "https://www.seznamzpravy.cz/*",
+        "https://www.sport.cz/*",
+        "https://www.super.cz/*",
+        "https://www.prozeny.cz/*"
+      ],
+      "js": ["content/intercept.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.novinky.cz/*",
+        "https://www.seznamzpravy.cz/*",
+        "https://www.sport.cz/*",
+        "https://www.super.cz/*",
+        "https://www.prozeny.cz/*"
+      ],
+      "js": ["content/player.js"],
+      "css": ["content/player.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/options.html",
+  "action": {
+    "default_title": "Audio Ad Skipper"
+  }
+}
