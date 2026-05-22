@@ -223,7 +223,7 @@ Postup:
    lupy — to by byl jen Google search).
 4. **Měl by vyskočit dialog** s textem:
 
-   > Audio Ad Skipper armed — tap the Seznam play button.
+   > Audio Add Skipper armed — tap the Seznam play button.
 
    Tukni **OK**.
 5. Tukni originální **Seznam play tlačítko** u nadpisu článku.
@@ -265,7 +265,7 @@ nainstalovaný **dříve**, než Seznam pustí první ad. Postup:
 ### „Vyskakuje mi popup, že už běží na téhle stránce"
 
 ```
-Audio Ad Skipper is already running on this page.
+Audio Add Skipper is already running on this page.
 ```
 
 To znamená, že jsi záložku tukl/a dvakrát po sobě na stejné stránce. Nic

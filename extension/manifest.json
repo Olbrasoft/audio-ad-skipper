@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Audio Ad Skipper",
+  "name": "Audio Add Skipper",
   "version": "0.2.0",
   "description": "Přeskočí prerollové reklamy u TTS článků na webech Seznam rodiny (Novinky, Seznam Zprávy, Sport.cz, …) a pustí rovnou namluvený článek.",
   "icons": {
@@ -45,6 +45,6 @@
   ],
   "options_page": "options/options.html",
   "action": {
-    "default_title": "Audio Ad Skipper"
+    "default_title": "Audio Add Skipper"
   }
 }

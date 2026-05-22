@@ -1,4 +1,4 @@
-// Audio Ad Skipper — bookmarklet distribution
+// Audio Add Skipper — bookmarklet distribution
 //
 // For users on Google Chrome for Android (and anywhere else where extensions
 // and userscript managers aren't available). Tap the bookmark once per
@@ -21,7 +21,7 @@
 
 void (() => {
   if (window.__aasInstalled) {
-    alert('Audio Ad Skipper is already running on this page.');
+    alert('Audio Add Skipper is already running on this page.');
     return;
   }
   window.__aasInstalled = true;
@@ -90,5 +90,5 @@ void (() => {
     return origPlay.apply(this, arguments);
   };
 
-  alert('Audio Ad Skipper armed — tap the Seznam play button to start.');
+  alert('Audio Add Skipper armed — tap the Seznam play button to start.');
 })();

@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Audio Ad Skipper
+// @name         Audio Add Skipper
 // @namespace    https://github.com/Olbrasoft/audio-ad-skipper
 // @version      0.2.0
 // @description  Přeskočí prerollové reklamy u TTS článků na webech Seznam rodiny (Novinky, Seznam Zprávy, Sport.cz, Super.cz, Prozeny.cz) a pustí rovnou namluvený článek.

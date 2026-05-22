@@ -19,7 +19,7 @@ All three are hand-merged copies of the same logic. There is no build step that 
 There is no build, lint, or test command. Workflow:
 
 1. Edit files under `extension/`.
-2. `edge://extensions` (or `chrome://extensions`) → Audio Ad Skipper → **Reload**.
+2. `edge://extensions` (or `chrome://extensions`) → Audio Add Skipper → **Reload**.
 3. Refresh an article tab and watch the DevTools console.
 
 Both `[AAS intercept]` (MAIN world) and `[AAS player]` (isolated world) logs land in the same page console — Chrome MV3 merges them.

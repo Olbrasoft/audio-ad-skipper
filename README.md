@@ -1,4 +1,4 @@
-# Audio Ad Skipper
+# Audio Add Skipper
 
 Chromium / Edge rozšíření, které u TTS (text-to-speech) článků na webech Seznam rodiny
 **potichu přeskočí prerollové reklamy** a nechá přehrát rovnou článek přes původní Seznam
@@ -204,7 +204,7 @@ step není potřeba — žádný TypeScript, žádný bundler, čisté JS / HTML
 
 ```bash
 # Po edit reloadnout rozšíření a refreshnout stránku článku:
-# 1. edge://extensions → Audio Ad Skipper → 🔄 Reload
+# 1. edge://extensions → Audio Add Skipper → 🔄 Reload
 # 2. F5 na otevřeném článku
 ```
 
@@ -212,7 +212,7 @@ Pro debugging:
 
 - MAIN-world log (`[AAS intercept]`) najdete přímo v DevTools konzoli stránky.
 - Isolated-world log (`[AAS player]`) tamtéž — Chrome MV3 je sloučí do jedné konzole.
-- Service worker `chrome://extensions` → Audio Ad Skipper → **Inspect views: service worker**.
+- Service worker `chrome://extensions` → Audio Add Skipper → **Inspect views: service worker**.
 
 ## Licence
 
