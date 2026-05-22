@@ -43,6 +43,8 @@
   const VMD_URL_RE = /sdn\.cz\/.*\/vmd[\/_].*spl2/;
   const AD_DURATION_MAX = 60; // seconds
   const POST_ARTICLE_WINDOW_MS = 30000;
+  const DECIDER = Symbol('aasDecider');
+  const LAST_AD_SKIP = Symbol('aasLastAdSkip');
 
   console.info(TAG_INTERCEPT, 'installed at', location.href);
 
@@ -55,11 +57,11 @@
   // the window before the ad's .play() fires. Bounded length means an
   // article-body <video> played by the user much later still works normally.
   let fastForwardUntil = 0;
-  let articleStarted = false;
+  let listeningActive = false;
   let articleEl = null;
+  let lastAdLog = { key: '', until: 0 };
 
   function reopenForAdBreak(reason) {
-    articleStarted = false;
     fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
     console.info(TAG_INTERCEPT, `article ${reason} — fast-forward window reopened until`, new Date(fastForwardUntil).toISOString());
   }
@@ -74,7 +76,7 @@
       if (t.closest(TTS_BTN_SELECTOR)) {
         console.info(TAG_PLAYER, 'TTS button clicked → opening fast-forward window');
         fastForwardUntil = Math.max(fastForwardUntil, Date.now() + 60000);
-        articleStarted = false;
+        listeningActive = false;
         console.info(TAG_INTERCEPT, 'fast-forward window opened until', new Date(fastForwardUntil).toISOString());
       }
     }, { capture: true });
@@ -91,43 +93,74 @@
     if (this.classList.contains('aas-audio')) {
       return origPlay.apply(this, arguments);
     }
-    if (articleStarted || Date.now() > fastForwardUntil) {
+    if (!listeningActive && Date.now() > fastForwardUntil) {
       return origPlay.apply(this, arguments);
     }
 
     const el = this;
     el.muted = true; // immediate mute — no ad audio ever leaks
 
-    const decide = () => {
-      if (articleStarted) return;
-      const d = el.duration;
-      if (!d || isNaN(d) || d === Infinity) return;
-
-      if (d > AD_DURATION_MAX) {
-        console.info(TAG_INTERCEPT, `article reached (${d.toFixed(1)}s) — unmuting`);
-        el.muted = false;
-        articleStarted = true;
-        fastForwardUntil = 0;
-        if (articleEl !== el) {
-          articleEl = el;
-          el.addEventListener('pause', () => reopenForAdBreak('paused'));
-          el.addEventListener('ended', () => reopenForAdBreak('ended'));
-        }
-        el.removeEventListener('loadedmetadata', decide);
-        el.removeEventListener('durationchange', decide);
-      } else if (el.currentTime < d - 0.3) {
-        const phase = !articleEl ? 'preroll' : articleEl.ended ? 'post-roll' : 'mid-roll';
-        console.info(TAG_INTERCEPT, `fast-forwarding ${phase} ad (${d.toFixed(1)}s)`);
-        try { el.currentTime = d - 0.05; } catch {}
-      }
-    };
-
-    if (el.duration) decide();
-    el.addEventListener('loadedmetadata', decide);
-    el.addEventListener('durationchange', decide);
+    if (!el[DECIDER]) {
+      el[DECIDER] = () => {
+        decideMedia(el);
+      };
+      el.addEventListener('loadedmetadata', el[DECIDER]);
+      el.addEventListener('durationchange', el[DECIDER]);
+      el.addEventListener('playing', el[DECIDER]);
+    }
+    el[DECIDER]();
 
     return origPlay.apply(this, arguments);
   };
+
+  function decideMedia(el) {
+    if (!listeningActive && Date.now() > fastForwardUntil) return;
+
+    const d = el.duration;
+    if (!d || isNaN(d) || d === Infinity) return;
+
+    if (d > AD_DURATION_MAX) {
+      if (articleEl !== el || el.muted) {
+        console.info(TAG_INTERCEPT, `article reached (${d.toFixed(1)}s) — unmuting`);
+      }
+      el.muted = false;
+      listeningActive = true;
+      fastForwardUntil = 0;
+      if (articleEl !== el) {
+        articleEl = el;
+        el.addEventListener('pause', () => reopenForAdBreak('paused'));
+        el.addEventListener('ended', () => reopenForAdBreak('ended'));
+      }
+    } else if (el.currentTime < d - 0.3) {
+      const skipKey = d.toFixed(1);
+      if (el[LAST_AD_SKIP]?.key === skipKey && Date.now() < el[LAST_AD_SKIP].until) {
+        el.muted = true;
+        forceSkipAd(el, d);
+        return;
+      }
+      el[LAST_AD_SKIP] = { key: skipKey, until: Date.now() + 10000 };
+      const phase = !articleEl ? 'preroll' : articleEl.ended ? 'post-roll' : 'mid-roll';
+      const logKey = `${phase}|${skipKey}`;
+      if (lastAdLog.key !== logKey || Date.now() > lastAdLog.until) {
+        console.info(TAG_INTERCEPT, `fast-forwarding ${phase} ad (${d.toFixed(1)}s)`);
+        lastAdLog = { key: logKey, until: Date.now() + 10000 };
+      }
+      el.muted = true;
+      forceSkipAd(el, d);
+      fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
+    }
+  }
+
+  function forceSkipAd(el, duration) {
+    const seekNearEnd = () => {
+      if (el.currentTime >= duration - 0.3) return;
+      try { el.currentTime = duration - 0.05; } catch {}
+    };
+    seekNearEnd();
+    setTimeout(seekNearEnd, 50);
+    setTimeout(seekNearEnd, 250);
+    setTimeout(seekNearEnd, 750);
+  }
 
   // --- VMD response interception (diagnostics) -----------------------------
   const origJson = Response.prototype.json;
