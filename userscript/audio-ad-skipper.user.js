@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Audio Add Skipper
 // @namespace    https://github.com/Olbrasoft/audio-ad-skipper
-// @version      0.2.0
-// @description  Přeskočí prerollové reklamy u TTS článků na webech Seznam rodiny (Novinky, Seznam Zprávy, Sport.cz, Super.cz, Prozeny.cz) a pustí rovnou namluvený článek.
+// @version      0.4.0
+// @description  Přeskočí audio reklamy u TTS článků na webech Seznam rodiny a video reklamy na YouTube.
 // @author       Olbrasoft
 // @homepageURL  https://github.com/Olbrasoft/audio-ad-skipper
 // @supportURL   https://github.com/Olbrasoft/audio-ad-skipper/issues
@@ -13,6 +13,7 @@
 // @match        https://www.sport.cz/*
 // @match        https://www.super.cz/*
 // @match        https://www.prozeny.cz/*
+// @match        https://www.youtube.com/*
 // @run-at       document-start
 // @grant        none
 // @noframes
@@ -39,26 +40,40 @@
 
   const TAG_INTERCEPT = '[AAS intercept]';
   const TAG_PLAYER = '[AAS player]';
+  const TAG_YOUTUBE = '[AAS YouTube]';
   const TTS_BTN_SELECTOR = '[data-dot="atm-tts-play-btn"]';
   const VMD_URL_RE = /sdn\.cz\/.*\/vmd[\/_].*spl2/;
   const AD_DURATION_MAX = 60; // seconds
   const POST_ARTICLE_WINDOW_MS = 30000;
 
+  if (location.hostname === 'www.youtube.com') {
+    installYouTubeAdSkipper();
+    return;
+  }
+
   console.info(TAG_INTERCEPT, 'installed at', location.href);
 
   // --- Fast-forward window state -------------------------------------------
   //
-  // The window is opened by the TTS button click (60s) and re-opened by
-  // pause/ended on the article element (POST_ARTICLE_WINDOW_MS). The second
-  // mechanism is what catches mid-roll and post-roll ads: any genuine ad
-  // break must first pause or end the article element, which lets us re-open
-  // the window before the ad's .play() fires. Bounded length means an
-  // article-body <video> played by the user much later still works normally.
+  // Mid-roll detection works through two independent signals so a race between
+  // "article pauses" and "ad .play() fires" can't slip an ad past us:
+  //
+  //   1. A different HTMLMediaElement calling .play() while the article is
+  //      still considered active — treated as an ad candidate, the hook
+  //      engages regardless of `articleStarted`.
+  //   2. The article element itself emitting `pause` / `ended` / `emptied`
+  //      (the last one catches Seznam swapping src on the SAME element for
+  //      the mid-roll, which would otherwise never fire pause).
+  //
+  // Both reopen a POST_ARTICLE_WINDOW_MS fast-forward window. The bounded
+  // length means an article-body <video> the user plays much later still
+  // works normally.
   let fastForwardUntil = 0;
   let articleStarted = false;
   let articleEl = null;
 
   function reopenForAdBreak(reason) {
+    if (!articleStarted && Date.now() <= fastForwardUntil) return;
     articleStarted = false;
     fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
     console.info(TAG_INTERCEPT, `article ${reason} — fast-forward window reopened until`, new Date(fastForwardUntil).toISOString());
@@ -75,6 +90,7 @@
         console.info(TAG_PLAYER, 'TTS button clicked → opening fast-forward window');
         fastForwardUntil = Math.max(fastForwardUntil, Date.now() + 60000);
         articleStarted = false;
+        articleEl = null; // fresh session — let the next article-length stream be adopted
         console.info(TAG_INTERCEPT, 'fast-forward window opened until', new Date(fastForwardUntil).toISOString());
       }
     }, { capture: true });
@@ -91,19 +107,40 @@
     if (this.classList.contains('aas-audio')) {
       return origPlay.apply(this, arguments);
     }
-    if (articleStarted || Date.now() > fastForwardUntil) {
+
+    const el = this;
+    const inWindow = Date.now() <= fastForwardUntil;
+    const isKnownArticle = articleEl === el;
+
+    // No active tracking, no forced window → unrelated page media.
+    if (!articleStarted && !inWindow) {
+      return origPlay.apply(this, arguments);
+    }
+    // The known article element resuming while still article-length → pass through.
+    // (Duration only stays article-length until Seznam swaps src to an ad, which
+    // fires `emptied` and flips articleStarted off — so a stale long duration
+    // can't leak an ad past us here.)
+    if (isKnownArticle && el.duration > AD_DURATION_MAX) {
       return origPlay.apply(this, arguments);
     }
 
-    const el = this;
     el.muted = true; // immediate mute — no ad audio ever leaks
 
     const decide = () => {
-      if (articleStarted) return;
       const d = el.duration;
       if (!d || isNaN(d) || d === Infinity) return;
 
       if (d > AD_DURATION_MAX) {
+        // Long stream. If we already have a known active article elsewhere,
+        // this is unrelated page media (e.g. an article-body video) — release
+        // it without claiming the article role.
+        if (articleEl && articleEl !== el && articleStarted) {
+          console.info(TAG_INTERCEPT, `unrelated long media (${d.toFixed(1)}s) — releasing`);
+          el.muted = false;
+          el.removeEventListener('loadedmetadata', decide);
+          el.removeEventListener('durationchange', decide);
+          return;
+        }
         console.info(TAG_INTERCEPT, `article reached (${d.toFixed(1)}s) — unmuting`);
         el.muted = false;
         articleStarted = true;
@@ -112,12 +149,19 @@
           articleEl = el;
           el.addEventListener('pause', () => reopenForAdBreak('paused'));
           el.addEventListener('ended', () => reopenForAdBreak('ended'));
+          el.addEventListener('emptied', () => reopenForAdBreak('emptied'));
         }
         el.removeEventListener('loadedmetadata', decide);
         el.removeEventListener('durationchange', decide);
       } else if (el.currentTime < d - 0.3) {
-        const phase = !articleEl ? 'preroll' : articleEl.ended ? 'post-roll' : 'mid-roll';
+        const phase = !articleEl
+          ? 'preroll'
+          : isKnownArticle
+            ? 'mid-roll (same element)'
+            : articleEl.ended ? 'post-roll' : 'mid-roll';
         console.info(TAG_INTERCEPT, `fast-forwarding ${phase} ad (${d.toFixed(1)}s)`);
+        // Extend the window so the next ad in a multi-ad break is also caught
+        fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
         try { el.currentTime = d - 0.05; } catch {}
       }
     };
@@ -195,5 +239,118 @@
     const chosen = order.map((k) => mp3[k]).find((v) => v?.url);
     if (!chosen?.url) return null;
     try { return new URL(chosen.url, vmdUrl).href; } catch { return null; }
+  }
+
+  function installYouTubeAdSkipper() {
+    const PLAYER_SELECTOR = '#movie_player';
+    const SKIP_SELECTOR = [
+      '.ytp-skip-ad-button',
+      '.ytp-ad-skip-button',
+      '.ytp-ad-skip-button-modern',
+      '.ytp-ad-overlay-close-button'
+    ].join(',');
+    const CHECK_INTERVAL_MS = 250;
+    const MIN_VISIBLE_SIZE = 100;
+    const SEEK_PAD_SECONDS = 0.05;
+
+    const touchedVideos = new WeakMap();
+    let wasInAd = false;
+
+    console.info(TAG_YOUTUBE, 'installed at', location.href);
+
+    function getPlayer() {
+      return document.querySelector(PLAYER_SELECTOR);
+    }
+
+    function isAdShowing(player) {
+      return !!player && (
+        player.classList.contains('ad-showing') ||
+        player.classList.contains('ad-interrupting')
+      );
+    }
+
+    function isVisibleElement(el) {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width >= MIN_VISIBLE_SIZE &&
+        rect.height >= MIN_VISIBLE_SIZE &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden';
+    }
+
+    function findVisibleAdVideo() {
+      return Array.from(document.querySelectorAll('video')).find(isVisibleElement);
+    }
+
+    function findVisibleSkipButton() {
+      return Array.from(document.querySelectorAll(SKIP_SELECTOR)).find((button) => (
+        isVisibleElement(button) && !button.disabled
+      ));
+    }
+
+    function rememberVideoState(video) {
+      if (touchedVideos.has(video)) return;
+      touchedVideos.set(video, {
+        muted: video.muted,
+        playbackRate: video.playbackRate
+      });
+    }
+
+    function restoreVideoState(video) {
+      const state = touchedVideos.get(video);
+      if (!state) return;
+      video.muted = state.muted;
+      video.playbackRate = state.playbackRate;
+      touchedVideos.delete(video);
+    }
+
+    function skipAd(player) {
+      const button = findVisibleSkipButton();
+      if (button) {
+        button.click();
+      }
+
+      const video = findVisibleAdVideo();
+      if (!video) return;
+
+      rememberVideoState(video);
+      video.muted = true;
+
+      if (video.playbackRate < 16) {
+        video.playbackRate = 16;
+      }
+
+      if (Number.isFinite(video.duration) &&
+        video.duration > 0 &&
+        video.currentTime < video.duration - 0.3) {
+        try {
+          video.currentTime = Math.max(0, video.duration - SEEK_PAD_SECONDS);
+          console.info(TAG_YOUTUBE, `fast-forwarding YouTube ad (${video.duration.toFixed(1)}s)`);
+        } catch {}
+      }
+
+      if (video.paused) {
+        try { player?.playVideo?.(); } catch {}
+        video.play().catch(() => {});
+      }
+    }
+
+    function tick() {
+      const player = getPlayer();
+      if (isAdShowing(player)) {
+        wasInAd = true;
+        skipAd(player);
+        return;
+      }
+
+      if (!wasInAd) return;
+      wasInAd = false;
+      for (const video of document.querySelectorAll('video')) {
+        restoreVideoState(video);
+      }
+    }
+
+    setInterval(tick, CHECK_INTERVAL_MS);
+    tick();
   }
 })();

@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Silently fast-forwards preroll ads in front of Seznam-family TTS articles (novinky.cz, seznamzpravy.cz, sport.cz, super.cz, prozeny.cz). No own UI — it piggybacks on the original Seznam player. Proof-of-concept, plain JS / HTML / CSS, no build step, no tests.
+Silently fast-forwards audio ads in Seznam-family TTS articles (novinky.cz, seznamzpravy.cz, sport.cz, super.cz, prozeny.cz) and video ads on YouTube. No own UI — it piggybacks on the original Seznam / YouTube players. Proof-of-concept, plain JS / HTML / CSS, no build step, no tests.
 
 Three distributions, behaviorally identical, shipped from the same repo:
 
-- **`extension/`** — Chromium / Edge MV3 extension (desktop only). Two files split across two JS execution worlds; this is the primary distribution.
+- **`extension/`** — Chromium / Edge MV3 extension (desktop only). The Seznam path is split across two JS execution worlds; the YouTube path is a separate content script.
 - **`userscript/audio-ad-skipper.user.js`** — single self-contained Tampermonkey/Violentmonkey userscript. Targets Firefox and mobile Chromium browsers where MV3 with `world: "MAIN"` doesn't work (mobile Edge / Kiwi / Firefox for Android). Uses `@grant none` to run in the page's JS context (the userscript-manager equivalent of MAIN world), which is the one thing that makes the `HTMLMediaElement.prototype.play` hook possible.
 - **`bookmarklet/`** — single-file `javascript:…` URL for users who can't install extensions or userscript managers (notably Google Chrome stable on Android). Same logic packed into a self-contained IIFE; user must tap the bookmark **on every article** before tapping play, because there is no document-start install path. Two files: `*.bookmarklet.js` is the readable source, `*.bookmarklet.min.txt` is the single-line production URL.
 
@@ -23,6 +23,7 @@ There is no build, lint, or test command. Workflow:
 3. Refresh an article tab and watch the DevTools console.
 
 Both `[AAS intercept]` (MAIN world) and `[AAS player]` (isolated world) logs land in the same page console — Chrome MV3 merges them.
+YouTube logs use `[AAS YouTube]`.
 
 ## Architecture — the one thing you must understand
 
@@ -60,6 +61,10 @@ Inside the patched `.play()`, when `Date.now() < fastForwardUntil` and the eleme
 
 The 60-second threshold and the 60-second fast-forward window length are the two magic numbers. Real prerolls are 15–30s; real TTS articles are typically 90s+. If you change `AD_DURATION_MAX` in `intercept.js`, also reconsider the window duration in `player.js` (currently both 60s, but they mean different things).
 
+## YouTube path
+
+`content/youtube.js` does not use the Seznam duration heuristic. YouTube ads can be longer than 60s. Instead it watches `#movie_player` for `ad-showing` / `ad-interrupting`, mutes the visible `<video>`, tries a visible skip button, and seeks the visible ad video to `duration - 0.05`. It repeats on a short interval because an ad break can contain multiple ads. When the player leaves ad mode, it restores the touched video's original `muted` / `playbackRate` values.
+
 ## Fragile selectors / contracts
 
 If the extension stops working, the most likely causes (in order):
@@ -67,6 +72,7 @@ If the extension stops working, the most likely causes (in order):
 1. **TTS button selector changed.** `TTS_BTN_SELECTOR = '[data-dot="atm-tts-play-btn"]'` in `content/player.js`.
 2. **VMD URL regex no longer matches.** `VMD_URL_RE = /sdn\.cz\/.*\/vmd[\/_].*spl2/` and the article-vs-ad discriminator `isArticleTts` (looks for `~SEC1~`, 24-hex VMD id, and `language: "cs"` in `idmap`) — both in `content/intercept.js`. See README "Heuristika detekce" table for the full ad-vs-article signal set.
 3. **Host list out of sync.** `manifest.json` `host_permissions` and both `content_scripts[].matches` arrays must list the same domains. The `*.sdn.cz/*` host permission is required for the VMD diagnostic logger only.
+4. **YouTube player contract changed.** `content/youtube.js` depends on `#movie_player`, `ad-showing` / `ad-interrupting`, visible `<video>` playback, and the current skip-button class names.
 
 ## Options page
 
@@ -78,3 +84,4 @@ If the extension stops working, the most likely causes (in order):
 - Root-level PNGs (`aas-*.png`) are README screenshots, not used by the extension.
 - `extension/icons/` are placeholder PNGs.
 - `extension/content/player.css` exists but is currently unused (legacy from an earlier design that had its own UI).
+- `extension/content/youtube.js` is independent from the Seznam TTS split and should stay that way unless the two paths genuinely share behavior.

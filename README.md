@@ -1,8 +1,9 @@
 # Audio Add Skipper
 
 Chromium / Edge rozšíření, které u TTS (text-to-speech) článků na webech Seznam rodiny
-**potichu přeskočí prerollové reklamy** a nechá přehrát rovnou článek přes původní Seznam
-přehrávač. Žádné vlastní UI — vypadá to, jako by Seznam reklamy nikdy nepouštěl.
+**potichu přeskočí audio reklamy** a nechá přehrát rovnou článek přes původní Seznam
+přehrávač. Na YouTube umí zrychleně přeskočit video reklamy v původním YouTube přehrávači.
+Žádné vlastní UI — vypadá to, jako by reklamy nikdy nepouštěl.
 
 | Před                                  | Po                                          |
 | ------------------------------------- | ------------------------------------------- |
@@ -14,6 +15,7 @@ přehrávač. Žádné vlastní UI — vypadá to, jako by Seznam reklamy nikdy 
   na prerollových reklamách (typicky 2× ~25 s).
 - Funguje pro **přihlášené uživatele** (Seznam účet) — bez loginu Seznam VMD endpoint nezavolá
   a rozšíření nemá co interceptovat.
+- Diváky YouTube, kterým se před videem nebo mezi videem spustí video reklama.
 
 ## Podporované weby
 
@@ -27,6 +29,10 @@ Rozšíření se aktivuje na všech URL z těchto domén:
 
 Stačí, aby měl článek originální TTS tlačítko Seznamu (`[data-dot="atm-tts-play-btn"]`).
 
+Na YouTube se rozšíření aktivuje na:
+
+- `www.youtube.com`
+
 ## Kompatibilita
 
 | Prohlížeč         | Stav           | Poznámka                                        |
@@ -37,7 +43,7 @@ Stačí, aby měl článek originální TTS tlačítko Seznamu (`[data-dot="atm-
 | Firefox (desktop) | ✅ přes userscript | MV3 v Firefoxu neumí `world: "MAIN"`, ale userscript distribuce přes Tampermonkey funguje. |
 | Safari            | ❌ nepodporováno | Web Extensions API se v `"world"` chová jinak. |
 | Mobil (Android, Edge/Firefox/Kiwi) | ✅ přes userscript | Tampermonkey + raw `.user.js` URL — plně automatické po nainstalování. |
-| Mobil (Android, Google Chrome) | ⚠️ jen přes bookmarklet | Chrome stable na Androidu neumí extensions ani userscript managery — bookmarklet z `bookmarklet/` je jediná cesta, vyžaduje ručně tuknout záložku na každém článku. |
+| Mobil (Android, Google Chrome) | ⚠️ jen přes bookmarklet | Chrome stable na Androidu neumí extensions ani userscript managery — bookmarklet z `bookmarklet/` je jediná cesta, vyžaduje ručně tuknout záložku na každé stránce. |
 | Mobil (iOS)       | ❌ nepodporováno | Všechny iOS prohlížeče běží na WebKitu a userscript managery jsou tam výrazně omezené. |
 
 **Minimální verze:** Chrome / Edge 111+ (kvůli `content_scripts[].world: "MAIN"`). Userscript distribuce minimum nemá — funguje všude, kde běží Tampermonkey/Violentmonkey s `@grant none`.
@@ -57,6 +63,14 @@ Stačí, aby měl článek originální TTS tlačítko Seznamu (`[data-dot="atm-
 4. Vedlejší produkt: VMD odpověď (`*.sdn.cz/.../vmd/<24hex>?...|spl2`) se loguje do konzole
    včetně přímé MP3 URL — připraveno pro budoucí „stáhnout MP3" feature.
 
+YouTube běží odděleně v `content/youtube.js`:
+
+1. Sleduje `#movie_player` a jeho třídy `ad-showing` / `ad-interrupting`.
+2. Během reklamy ztiší viditelný `<video>` element, zkusí kliknout viditelné skip tlačítko a
+   jako fallback posune reklamní video těsně před konec.
+3. Kontrolu opakuje v krátkém intervalu, protože jeden reklamní blok může obsahovat více reklam.
+4. Jakmile YouTube přepne na hlavní video, obnoví původní `muted` / `playbackRate` stav videa.
+
 ### Heuristika detekce TTS článku vs. reklamy
 
 | Znak                     | Reklama                              | TTS článek                            |
@@ -69,7 +83,7 @@ Stačí, aby měl článek originální TTS tlačítko Seznamu (`[data-dot="atm-
 
 ## Distribuce
 
-Rozšíření existuje ve dvou podobách — funkčně identických, lišících se jen způsobem instalace a tím, kde fungují:
+Rozšíření existuje ve třech podobách — funkčně identických, lišících se jen způsobem instalace a tím, kde fungují:
 
 | Distribuce | Kde | Adresář |
 | ---------- | --- | ------- |
@@ -115,7 +129,7 @@ editoru. Aktualizace skriptu si Tampermonkey tahá sám z `@updateURL`.
 
 ## Instalace — bookmarklet (Google Chrome na Androidu)
 
-Pro mobilní Chrome a kdekoli jinde, kde nejde extension ani userscript. Vyžaduje manuálně tuknout záložku **na každém článku** předtím, než tuknete play.
+Pro mobilní Chrome a kdekoli jinde, kde nejde extension ani userscript. Vyžaduje manuálně tuknout záložku **na každé stránce** předtím, než tuknete play.
 
 > 📖 **Podrobný návod s obrázky a pitfally pro netechnické uživatele:**
 > [`docs/instalace-na-telefonu.md`](docs/instalace-na-telefonu.md)
@@ -126,7 +140,7 @@ Pro mobilní Chrome a kdekoli jinde, kde nejde extension ani userscript. Vyžadu
 2. V Chromu otevřete [`bookmarklet/audio-ad-skipper.bookmarklet.min.txt`](bookmarklet/audio-ad-skipper.bookmarklet.min.txt), dlouze podržte prst **na textu v těle stránky** (ne na adrese!) → **Vybrat vše** → **Kopírovat**.
 3. Uložte libovolnou stránku jako záložku (hvězdička v menu). Hned tukněte **Upravit** v bublině „Záložka přidána".
 4. V editoru přejmenujte **Název** na `aas`. **Vymažte celý obsah pole „Adresa URL"** a vložte zkopírovaný text. Zkontrolujte, že URL začíná přesně `javascript:void(`. Uložte.
-5. Na článku napište `aas` do adresního řádku → tukněte návrh záložky → OK na popup *„armed"* → tukněte Seznam play.
+5. Na článku nebo YouTube videu napište `aas` do adresního řádku → tukněte návrh záložky → OK na popup *„armed"* → tukněte play.
 
 **Časté chyby (viz podrobný návod pro nápravu):**
 
@@ -136,7 +150,7 @@ Pro mobilní Chrome a kdekoli jinde, kde nejde extension ani userscript. Vyžadu
 
 **Známá omezení:**
 
-- **Musíte tuknout na každém článku.** Bookmarklet se nespouští automaticky.
+- **Musíte tuknout na každé stránce.** Bookmarklet se nespouští automaticky.
 - Pokud má Seznam na nějaké podstránce přísné CSP (`script-src` bez `unsafe-eval`), může Chrome bookmarklet zablokovat. V testech to nebyl problém, ale pokud nic nefunguje a v konzoli vidíte CSP chybu, nainstalujte si raději Edge / Firefox a použijte userscript.
 - Pro úplnou jistotu si zdrojový kód můžete přečíst v
   [`bookmarklet/audio-ad-skipper.bookmarklet.js`](bookmarklet/audio-ad-skipper.bookmarklet.js)
@@ -169,6 +183,7 @@ audio-ad-skipper/
 │   ├── content/
 │   │   ├── intercept.js                  # MAIN-world: HTMLMediaElement.play hook + VMD logger
 │   │   ├── player.js                     # isolated-world: detekce kliknutí na TTS tlačítko
+│   │   ├── youtube.js                    # YouTube ad detector + visible video fast-forward
 │   │   └── player.css                    # CSS pro případný vlastní UI (aktuálně nepoužitý)
 │   ├── options/
 │   │   ├── options.html                  # volba kvality MP3 (zatím jen pro diagnostiku)
@@ -196,6 +211,8 @@ audio-ad-skipper/
   uživatel klikne play do několika ms po načtení stránky, použije se default „high".
 - **Tlačítko musí mít selektor `[data-dot="atm-tts-play-btn"]`.** Pokud Seznam markup změní,
   rozšíření přestane fungovat a je nutno upravit `TTS_BTN_SELECTOR` v `content/player.js`.
+- **YouTube DOM je křehký.** YouTube skip závisí na `#movie_player` třídách `ad-showing` /
+  `ad-interrupting` a na tom, že reklamní stream běží ve viditelném `<video>` elementu.
 
 ## Vývoj
 
@@ -203,15 +220,16 @@ Změny v `extension/**` se po `Reload` v `edge://extensions` projeví okamžitě
 step není potřeba — žádný TypeScript, žádný bundler, čisté JS / HTML / CSS.
 
 ```bash
-# Po edit reloadnout rozšíření a refreshnout stránku článku:
+# Po edit reloadnout rozšíření a refreshnout stránku článku / videa:
 # 1. edge://extensions → Audio Add Skipper → 🔄 Reload
-# 2. F5 na otevřeném článku
+# 2. F5 na otevřeném článku / videu
 ```
 
 Pro debugging:
 
 - MAIN-world log (`[AAS intercept]`) najdete přímo v DevTools konzoli stránky.
 - Isolated-world log (`[AAS player]`) tamtéž — Chrome MV3 je sloučí do jedné konzole.
+- YouTube log (`[AAS YouTube]`) hlásí instalaci a přeskočené reklamní streamy.
 - Service worker `chrome://extensions` → Audio Add Skipper → **Inspect views: service worker**.
 
 ## Licence

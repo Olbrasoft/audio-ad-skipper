@@ -25,12 +25,19 @@
 
   // --- Fast-forward window state -------------------------------------------
   //
-  // The window is opened by the TTS button click (60s) and re-opened by
-  // pause/ended on the article element (POST_ARTICLE_WINDOW_MS). The second
-  // mechanism is what catches mid-roll and post-roll ads: any genuine ad
-  // break must first pause or end the article element, which lets us re-open
-  // the window before the ad's .play() fires. Bounded length means an
-  // article-body <video> played by the user much later still works normally.
+  // Mid-roll detection works through two independent signals so a race between
+  // "article pauses" and "ad .play() fires" can't slip an ad past us:
+  //
+  //   1. A different HTMLMediaElement calling .play() while the article is
+  //      still considered active — treated as an ad candidate, the hook
+  //      engages regardless of `articleStarted`.
+  //   2. The article element itself emitting `pause` / `ended` / `emptied`
+  //      (the last one catches Seznam swapping src on the SAME element for
+  //      the mid-roll, which would otherwise never fire pause).
+  //
+  // Both reopen a POST_ARTICLE_WINDOW_MS fast-forward window. The bounded
+  // length means an article-body <video> the user plays much later still
+  // works normally.
   let fastForwardUntil = 0;
   let articleStarted = false;
   let articleEl = null;
@@ -38,10 +45,12 @@
   document.addEventListener('aas:tts-clicked', (e) => {
     fastForwardUntil = Math.max(fastForwardUntil, Number(e.detail?.until) || (Date.now() + 60000));
     articleStarted = false;
+    articleEl = null; // fresh session — let the next article-length stream be adopted
     console.info(TAG, 'fast-forward window opened until', new Date(fastForwardUntil).toISOString());
   });
 
   function reopenForAdBreak(reason) {
+    if (!articleStarted && Date.now() <= fastForwardUntil) return;
     articleStarted = false;
     fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
     console.info(TAG, `article ${reason} — fast-forward window reopened until`, new Date(fastForwardUntil).toISOString());
@@ -53,19 +62,40 @@
     if (this.classList.contains('aas-audio')) {
       return origPlay.apply(this, arguments);
     }
-    if (articleStarted || Date.now() > fastForwardUntil) {
+
+    const el = this;
+    const inWindow = Date.now() <= fastForwardUntil;
+    const isKnownArticle = articleEl === el;
+
+    // No active tracking, no forced window → unrelated page media.
+    if (!articleStarted && !inWindow) {
+      return origPlay.apply(this, arguments);
+    }
+    // The known article element resuming while still article-length → pass through.
+    // (Duration only stays article-length until Seznam swaps src to an ad, which
+    // fires `emptied` and flips articleStarted off — so a stale long duration
+    // can't leak an ad past us here.)
+    if (isKnownArticle && el.duration > AD_DURATION_MAX) {
       return origPlay.apply(this, arguments);
     }
 
-    const el = this;
     el.muted = true; // immediate mute — no ad audio ever leaks
 
     const decide = () => {
-      if (articleStarted) return;
       const d = el.duration;
       if (!d || isNaN(d) || d === Infinity) return;
 
       if (d > AD_DURATION_MAX) {
+        // Long stream. If we already have a known active article elsewhere,
+        // this is unrelated page media (e.g. an article-body video) — release
+        // it without claiming the article role.
+        if (articleEl && articleEl !== el && articleStarted) {
+          console.info(TAG, `unrelated long media (${d.toFixed(1)}s) — releasing`);
+          el.muted = false;
+          el.removeEventListener('loadedmetadata', decide);
+          el.removeEventListener('durationchange', decide);
+          return;
+        }
         // Article-length stream — let it play normally
         console.info(TAG, `article reached (${d.toFixed(1)}s) — unmuting`);
         el.muted = false;
@@ -75,13 +105,20 @@
           articleEl = el;
           el.addEventListener('pause', () => reopenForAdBreak('paused'));
           el.addEventListener('ended', () => reopenForAdBreak('ended'));
+          el.addEventListener('emptied', () => reopenForAdBreak('emptied'));
         }
         el.removeEventListener('loadedmetadata', decide);
         el.removeEventListener('durationchange', decide);
       } else if (el.currentTime < d - 0.3) {
         // Ad — jump near the end so 'ended' fires and Seznam advances playlist
-        const phase = !articleEl ? 'preroll' : articleEl.ended ? 'post-roll' : 'mid-roll';
+        const phase = !articleEl
+          ? 'preroll'
+          : isKnownArticle
+            ? 'mid-roll (same element)'
+            : articleEl.ended ? 'post-roll' : 'mid-roll';
         console.info(TAG, `fast-forwarding ${phase} ad (${d.toFixed(1)}s)`);
+        // Extend the window so the next ad in a multi-ad break is also caught
+        fastForwardUntil = Math.max(fastForwardUntil, Date.now() + POST_ARTICLE_WINDOW_MS);
         try { el.currentTime = d - 0.05; } catch {}
       }
     };

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Audio Add Skipper",
-  "version": "0.2.0",
-  "description": "Přeskočí prerollové reklamy u TTS článků na webech Seznam rodiny (Novinky, Seznam Zprávy, Sport.cz, …) a pustí rovnou namluvený článek.",
+  "version": "0.4.0",
+  "description": "Přeskočí audio reklamy u TTS článků na webech Seznam rodiny a video reklamy na YouTube.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -15,7 +15,8 @@
     "https://www.sport.cz/*",
     "https://www.super.cz/*",
     "https://www.prozeny.cz/*",
-    "https://*.sdn.cz/*"
+    "https://*.sdn.cz/*",
+    "https://www.youtube.com/*"
   ],
   "content_scripts": [
     {
@@ -40,6 +41,11 @@
       ],
       "js": ["content/player.js"],
       "css": ["content/player.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content/youtube.js"],
       "run_at": "document_idle"
     }
   ],
